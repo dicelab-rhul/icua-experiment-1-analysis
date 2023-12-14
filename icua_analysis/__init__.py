@@ -12,9 +12,12 @@ from .constants import (
 )
 
 from .plot import (
+    plot_transition_matrix,
     plot_intervals,
+    plot_task_intervals,
     plot_looking,
     plot_failures,
+    plot_interval_hatched,
 )
 
 from .interval import (
@@ -40,11 +43,24 @@ from .dataframe import (
     zero_start_time,
     compute_task_failure_intervals,
     get_all_task_failure_intervals,
+    get_failure_intervals,  # alias for get_all_task_failure_intervals
+    get_tracking_task_failure_intervals,
+    get_guidance_intervals,
     get_looking_intervals,
     get_fixation_intervals,
     get_all_task_data,
     get_response_data,
+    get_keyboard_intervals,
+    assign_difficulty,
+    assign_guidance,
 )
+
+
+# functions to get statistics for all participants
+from .stats import (
+    get_guidance_stats,
+)
+
 
 from .performance_measures import default_performance, Performance
 

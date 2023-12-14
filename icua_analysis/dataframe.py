@@ -1,13 +1,57 @@
 """ Convert preprocessed data into dataframes for analysis"""
 
-from types import SimpleNamespace
 import pandas as pd
 import numpy as np
 import itertools
-
-from .linedata import LineData
 from .constants import *
 from .interval import *
+
+from .linedata import LineData
+
+
+def get_guidance_intervals(data):
+    """Compute guidance statistics for each participant and collect into a dataframe.
+
+    Returns:
+        (pandas.DataFrame): a data frame with the following columns [
+            "t1", "t2", "task"
+        ]
+    """
+    result = pd.DataFrame(columns=[])
+    guidance_data = data.get(
+        "highlight_data", pd.DataFrame(columns=["timestamp", "value", "task"])
+    )  # get guidance data (it is not always present, this means no guidance was given)
+
+    def _gen():
+        for task in TASKS:
+            tdf = guidance_data[guidance_data["task"] == task]
+            tintervals = compute_intervals(
+                tdf["value"].to_numpy(),
+                tdf["timestamp"].to_numpy(),
+                data["start_time"],
+                data["finish_time"],
+            ).intervals
+            yield pd.DataFrame(
+                dict(
+                    t1=tintervals[:, 0],
+                    t2=tintervals[:, 1],
+                    task=np.full(tintervals.shape[0], task),
+                )
+            )
+
+    return pd.concat(_gen()).sort_values("t1").reset_index(drop=True)
+
+
+def assign_difficulty(df):
+    df["difficulty"] = np.array(["hard", "easy"])[
+        df["trial"].str.contains("A").to_numpy().astype(int)
+    ]
+    return df
+
+
+def assign_guidance(df):
+    df["guidance"] = df["trial"].str.contains("a")
+    return df
 
 
 def get_looking_intervals(data):
@@ -45,6 +89,27 @@ def get_looking_intervals(data):
             )
 
     return pd.concat(_gen()).sort_values("t1").reset_index(drop=True)
+
+
+def get_keyboard_intervals(data):
+    """TODO docstring
+
+    Args:
+        data (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    keyboard_data = data["keyboard_data"]
+    keyboard_response = keyboard_data[keyboard_data["action"] != "hold"]
+    get_key_intervals = lambda x: compute_intervals(
+        x["action"] == "press", x["timestamp"], data["start_time"], data["finish_time"]
+    ).intervals
+    key_intervals = [
+        pd.DataFrame(get_key_intervals(group), columns=["t1", "t2"]).assign(key=key)
+        for key, group in keyboard_response.groupby("key")
+    ]
+    return pd.concat(key_intervals)
 
 
 def get_fixation_intervals(data):
@@ -150,7 +215,34 @@ def get_all_task_failure_intervals(data):
         name: compute_task_failure_intervals(data_task, start_time, finish_time)
         for name, data_task in data_tasks.items()
     }
-    return pd.concat([df.assign(task=k) for k, df in fi.items()])
+    return (
+        pd.concat([df.assign(task=k) for k, df in fi.items()])
+        .sort_values(by="t1")
+        .reset_index()
+    )
+
+
+def get_failure_intervals(data):
+    start_time, finish_time = data["start_time"], data["finish_time"]
+    data_tasks = get_all_task_data(data)
+    # compute failure_intervals for each task
+    fi = {
+        name: compute_task_failure_intervals(data_task, start_time, finish_time)
+        for name, data_task in data_tasks.items()
+    }
+    # drop component and merge to get task failure intervals
+    fi = {
+        name: pd.DataFrame(
+            data=merge_intervals(intervals[["t1", "t2"]].to_numpy()),
+            columns=["t1", "t2"],
+        )
+        for name, intervals in fi.items()
+    }
+    return (
+        pd.concat([df.assign(task=k) for k, df in fi.items()])
+        .sort_values(by="t1")
+        .reset_index()
+    )
 
 
 def zero_start_time(task_data, start_time, finish_time):
@@ -172,10 +264,20 @@ def zero_start_time(task_data, start_time, finish_time):
     return result_data, 0.0, finish_time - start_time
 
 
+def get_tracking_task_failure_intervals(data):
+    return compute_task_failure_intervals(
+        data["tracking_data"], data["start_time"], data["finish_time"]
+    )
+
+
+# TODO other tasks
+
+
 def compute_task_failure_intervals(
     task_data: pd.DataFrame, start_time: float, finish_time: float
 ):
     """Computes failure intervals for the given task data. See also `compute_intervals`.
+    Note: this will compute the within-task failure intervals (i.e. for each task component)
 
     Args:
         task_data (pd.DataFrame): task data to compute intervals for. Must have the following columns: ['timestamp', 'failure', 'component']

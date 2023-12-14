@@ -2,6 +2,9 @@ from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import numpy as np
+import pandas as pd
+
+from ._plot_transition import draw_transition_matrix
 
 from .dataframe import (
     get_looking_intervals,
@@ -11,6 +14,41 @@ from .dataframe import (
     get_all_task_failure_intervals,
 )
 from .interval import merge_intervals
+
+from .constants import get_task_properties
+
+
+# Tis function will compute and plot the transition matrix as a graph using the networkx package.
+def plot_transition_matrix(
+    prev, current, ax, tasks=["F", "S", "T"], counts=False, node_colors=None
+):
+    """Computes and plots the transition matrix as a graph using the networkx package. See source `_plot_transition.py` for further details.
+
+    Args:
+        prev (numpy.ndarray): column of tasks that were transitioned from.
+        current (numpy.ndarray): column of tasks that were transitioned to from `prev`.
+        ax (matplotlib.Axis): axis to plot on.
+        tasks (list, optional): tasks to use, this handles the case where a task doesnt appear in `prev` or `current`. Defaults to ["F", "S", "T"].
+        counts (bool, optional): whether to show counts (True) or probabilities (False). Defaults to False.
+        node_colors (List[str], optional): colors for each node (ordered by `tasks`). Defaults to None.
+
+    Returns:
+        _type_: _description_
+    """
+    # this allows for missing columns in the transition_df
+    transition_matrix = pd.crosstab(tasks, tasks)
+    _transition_matrix = pd.crosstab(prev, current)
+    transition_matrix.update(_transition_matrix)
+    transition_matrix = transition_matrix.astype(int)
+    transition_matrix.values[
+        np.diag_indices_from(transition_matrix)
+    ] = 0  # remove self transitions as they dont draw properly, they are also not important?
+    transition_matrix.index.name = None
+    transition_matrix.columns.name = None
+    if not counts:
+        transition_matrix = transition_matrix.div(transition_matrix.sum(axis=1), axis=0)
+        transition_matrix = transition_matrix.applymap(lambda x: "{:.2f}".format(x))
+    return draw_transition_matrix(transition_matrix, ax, node_colors=node_colors)
 
 
 def plot_intervals(
@@ -38,6 +76,26 @@ def plot_intervals(
             ymin=ymin,
             ymax=ymax,
             fill=fill,
+        )
+
+
+def plot_task_intervals(
+    intervals, ax=None, alpha=0.25, ymin=0, ymax=1, fill=True, linewidth=0.0
+):
+    assert "t1" in intervals.columns
+    assert "t2" in intervals.columns
+    assert "task" in intervals.columns
+    for task, task_data in intervals.groupby("task"):
+        color = get_task_properties(task)["color"]
+        plot_intervals(
+            task_data[["t1", "t2"]].to_numpy(),
+            ax=ax,
+            color=color,
+            alpha=alpha,
+            ymin=ymin,
+            ymax=ymax,
+            fill=fill,
+            linewidth=linewidth,
         )
 
 

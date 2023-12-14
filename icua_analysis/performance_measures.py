@@ -37,7 +37,7 @@ class FailureProportion:
     def __init__(self, groupby):
         assert "participant" in groupby  # otherwise what is trial duration?
         assert "trial" in groupby  # otherwise what is trial duration?
-        self.tds = Performance.get_trail_durations()
+        self.tds = Performance.get_trial_durations()
         self.pindex = groupby.index("participant")
         self.tindex = groupby.index("trial")
         self.__name__ = "failure_proportion"
@@ -76,7 +76,34 @@ class Performance:
         return all_failure_intervals
 
     @classmethod
-    def compute_performance(cls, metrics, groupby=["participant", "trial"]):
+    def get_all_task_failure_intervals(
+        cls,
+    ):  # task level failures! (i.e. intervals are merged for tasks)
+        def _dataframe_gen():
+            tabuluar_dataset = ia.load_tabularised().has_eyetracking()
+            for (participant, trial), data in tabuluar_dataset:
+                fi = ia.get_all_task_failure_intervals(data)
+                for task, tdata in fi.groupby("task"):
+                    yield pd.DataFrame(
+                        ia.merge_intervals(tdata[["t1", "t2"]].to_numpy()),
+                        columns=["t1", "t2"],
+                    ).assign(participant=participant).assign(trial=trial).assign(
+                        task=task
+                    )
+
+        # these intervals are over all failures for all components in all tasks, all participants and all trials
+        all_failure_intervals = pd.concat(_dataframe_gen())
+        # add "difficulty" and "guidance" columns, then we can groupby them later :)
+        all_failure_intervals["difficulty"] = np.array(["hard", "easy"])[
+            all_failure_intervals["trial"].str.contains("A").to_numpy().astype(int)
+        ]
+        all_failure_intervals["guidance"] = all_failure_intervals["trial"].str.contains(
+            "a"
+        )
+        return all_failure_intervals
+
+    @classmethod
+    def compute_performance(cls, metrics, groupby=["participant", "trial", "task"]):
         afi = Performance.get_all_failure_intervals()
         metric_names = [m.__name__ for m in metrics]
 
@@ -87,7 +114,7 @@ class Performance:
         return pd.DataFrame(_gen(), columns=[*groupby, *metric_names])
 
     @classmethod
-    def get_trail_durations(cls):
+    def get_trial_durations(cls):
         tabuluar_dataset = ia.load_tabularised().has_eyetracking()
 
         def _gen():
@@ -103,7 +130,7 @@ class Performance:
 
 
 def default_performance():
-    groupby = ["participant", "trial"]
+    groupby = ["participant", "trial", "task"]
     metrics = [
         FailureProportion(groupby),
         task_failure_length_mean,
